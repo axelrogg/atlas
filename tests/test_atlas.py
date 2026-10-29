@@ -6,25 +6,34 @@ from atlas import Atlas, ElementKind
 from atlas._atlas import next_id, to_real_value
 
 
+# Generated ids are the prefix followed by the next number after the last one
+# used for that prefix.
 def test_next_id_counts_up_from_the_last_number() -> None:
     assert next_id("R", 0, set()) == ("R1", 1)
     assert next_id("R", 4, set()) == ("R5", 5)
 
 
+# Someone can add elements to atlas.circuit directly. A generated id must never
+# collide with one that is already taken.
 def test_next_id_skips_taken_ids() -> None:
     assert next_id("R", 0, {"R1", "R2"}) == ("R3", 3)
 
 
+# R, L, C and the CCVS gain are stored as floats. Ints, floats and complex
+# numbers with no imaginary part must all be accepted as real.
 @pytest.mark.parametrize("value, expected", [(2, 2), (2.5, 2.5), (3 + 0j, 3.0)])
 def test_to_real_value_accepts_real_numbers(value: complex, expected: float) -> None:
     assert to_real_value(value, ElementKind.RESISTOR) == expected
 
 
+# A real imaginary part must be refused, not silently dropped, which would
+# change the circuit without telling the user.
 def test_to_real_value_rejects_a_non_zero_imaginary_part() -> None:
     with pytest.raises(ValueError):
         to_real_value(1 + 1j, ElementKind.RESISTOR)
 
 
+# Users never choose ids. Each kind counts on its own, with its SPICE letter.
 def test_ids_are_generated_per_kind() -> None:
     a = Atlas()
     ids = [
@@ -36,12 +45,16 @@ def test_ids_are_generated_per_kind() -> None:
     assert ids == ["V1", "R1", "R2", "L1"]
 
 
+# Users never create nodes either. An element added without terminals must get
+# two new ones, named after it so they are recognizable in results.
 def test_unconnected_terminals_get_fresh_nodes() -> None:
     a = Atlas()
     r = a.add_element(ElementKind.RESISTOR, 1.0)
     assert (r.plus.id, r.minus.id) == ("R1+", "R1-")
 
 
+# Passing another element's terminal (or ground) must reuse that exact node, so
+# the two elements are connected with no wire.
 def test_terminals_passed_at_creation_are_shared() -> None:
     a = Atlas()
     v = a.add_element(ElementKind.VOLTAGE_SOURCE, 10, minus=a.ground)
@@ -50,11 +63,16 @@ def test_terminals_passed_at_creation_are_shared() -> None:
     assert r.minus is a.ground
 
 
+# A complex resistance would otherwise fail later with an unclear comparison
+# error inside Resistor.
 def test_real_valued_kinds_reject_complex_values() -> None:
     with pytest.raises(ValueError):
         Atlas().add_element(ElementKind.RESISTOR, 1 + 1j)
 
 
+# A CCVS without a control can't be solved, and a control on any other kind
+# would be silently ignored. Both are mistakes. The valid case must store the
+# control's id.
 def test_only_a_ccvs_takes_a_control() -> None:
     a = Atlas()
     r = a.add_element(ElementKind.RESISTOR, 1.0)
@@ -66,6 +84,8 @@ def test_only_a_ccvs_takes_a_control() -> None:
     assert h.control_id == "R1"
 
 
+# Every Atlas generates the same ids (R1, R1+, ...). A node from one Atlas must
+# not be accepted by another, even if a node with that id exists there.
 def test_objects_from_another_atlas_are_rejected() -> None:
     a, b = Atlas(), Atlas()
     r = a.add_element(ElementKind.RESISTOR, 1.0)
@@ -75,6 +95,9 @@ def test_objects_from_another_atlas_are_rejected() -> None:
         b.connect(r.plus, b.ground)
 
 
+# connect means "make these the same point". If they already are (the same
+# node, or already joined through ground), it must do nothing instead of
+# raising a wire-loop error, and it must not create a wire.
 def test_connect_is_a_no_op_for_points_that_are_already_connected() -> None:
     a = Atlas()
     v = a.add_element(ElementKind.VOLTAGE_SOURCE, 10)
@@ -86,6 +109,7 @@ def test_connect_is_a_no_op_for_points_that_are_already_connected() -> None:
     assert len(a.circuit.wires) == 2
 
 
+# Couplings take elements, not ids, and get a generated K id.
 def test_couple_elements() -> None:
     a = Atlas()
     l1 = a.add_element(ElementKind.INDUCTOR, 1.0)
@@ -94,6 +118,9 @@ def test_couple_elements() -> None:
     assert (k.id, k.a_id, k.b_id) == ("K1", "L1", "L2")
 
 
+# A terminal left with nothing attached would float and make the next solve
+# singular, so it must be removed. A terminal still shared with another element
+# (V1+) must stay.
 def test_delete_element_removes_its_unused_nodes_only() -> None:
     a = Atlas()
     v = a.add_element(ElementKind.VOLTAGE_SOURCE, 10, minus=a.ground)
@@ -104,6 +131,8 @@ def test_delete_element_removes_its_unused_nodes_only() -> None:
     assert "V1+" in a.circuit.nodes
 
 
+# A wire can be the last thing holding a node in place, after the node's element
+# was deleted. Deleting that wire must clean up the node, and only that one.
 def test_delete_wire_removes_nodes_left_with_nothing() -> None:
     a = Atlas()
     r = a.add_element(ElementKind.RESISTOR, 1.0, minus=a.ground)
@@ -117,6 +146,8 @@ def test_delete_wire_removes_nodes_left_with_nothing() -> None:
     assert "R1+" in a.circuit.nodes
 
 
+# Deleting something that is already gone is a bug in the caller and must not
+# be silently ignored.
 def test_deleting_twice_is_rejected() -> None:
     a = Atlas()
     r = a.add_element(ElementKind.RESISTOR, 1.0, minus=a.ground)
@@ -131,6 +162,8 @@ def test_deleting_twice_is_rejected() -> None:
         a.delete_element(r)
 
 
+# The circuit's CCVS guard must also protect users of the facade: control
+# second is refused, CCVS first then control works.
 def test_a_ccvs_control_cannot_be_deleted_first() -> None:
     a = Atlas()
     r = a.add_element(ElementKind.RESISTOR, 1.0, minus=a.ground)
@@ -141,6 +174,8 @@ def test_a_ccvs_control_cannot_be_deleted_first() -> None:
     a.delete_element(r)
 
 
+# The README quickstart, built only through the public API: the divider must
+# give 6 V and 2 A.
 def test_solve_end_to_end() -> None:
     a = Atlas()
     v = a.add_element(ElementKind.VOLTAGE_SOURCE, 10)
@@ -153,6 +188,8 @@ def test_solve_end_to_end() -> None:
     assert sol.element_currents == pytest.approx({"V1": -2, "R1": 2, "R2": 2})
 
 
+# The transformer built through the public API must give the same load voltage
+# as the low-level engine test.
 def test_solve_with_coupling_end_to_end() -> None:
     a = Atlas()
     v = a.add_element(ElementKind.VOLTAGE_SOURCE, 10, minus=a.ground)
