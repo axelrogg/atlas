@@ -17,6 +17,23 @@ from atlas.model.magnetic_coupling import MagneticCoupling
 from atlas.model.node import Node
 
 
+def next_id(prefix: str, last: int, taken: Container[str]) -> tuple[str, int]:
+    n = last
+    while True:
+        n += 1
+        candidate = f"{prefix}{n}"
+        if candidate not in taken:
+            return candidate, n
+
+
+def to_real_value(value: complex, kind: ElementKind) -> float:
+    if isinstance(value, complex):
+        if value.imag != 0:
+            raise ValueError(f"Element of kind {kind} needs a real value, got {value}")
+        return value.real
+    return value
+
+
 class Atlas:
 
     def __init__(self) -> None:
@@ -28,13 +45,9 @@ class Atlas:
         return self.circuit.ground
 
     def _new_id(self, prefix: str, taken: Container[str]) -> str:
-        n = self._id_counts.get(prefix, 0)
-        while True:
-            n += 1
-            candidate = f"{prefix}{n}"
-            if candidate not in taken:
-                self._id_counts[prefix] = n
-                return candidate
+        new_id, n = next_id(prefix, self._id_counts.get(prefix, 0), taken)
+        self._id_counts[prefix] = n
+        return new_id
 
     def _require_node_in_circuit(self, n: Node) -> None:
         if self.circuit.nodes.get(n.id) is not n:
@@ -43,13 +56,6 @@ class Atlas:
     def _require_element_in_circuit(self, e: Element) -> None:
         if self.circuit.elements.get(e.id) is not e:
             raise ValueError(f"Element {e.id} does not belong to this circuit")
-
-    def _to_real_value(self, value: complex, kind: ElementKind) -> float:
-        if isinstance(value, complex):
-            if value.imag != 0:
-                raise ValueError(f"Element of kind {kind} needs a real value, got {value}")
-            return value.real
-        return value
 
     def add_element(
         self,
@@ -78,11 +84,11 @@ class Atlas:
         e: Element
         match kind:
             case ElementKind.RESISTOR:
-                e = Resistor(eid, plus, minus, self._to_real_value(value, kind), name=name)
+                e = Resistor(eid, plus, minus, to_real_value(value, kind), name=name)
             case ElementKind.INDUCTOR:
-                e = Inductor(eid, plus, minus, self._to_real_value(value, kind), name=name)
+                e = Inductor(eid, plus, minus, to_real_value(value, kind), name=name)
             case ElementKind.CAPACITOR:
-                e = Capacitor(eid, plus, minus, self._to_real_value(value, kind), name=name)
+                e = Capacitor(eid, plus, minus, to_real_value(value, kind), name=name)
             case ElementKind.IMPEDANCE:
                 e = Impedance(eid, plus, minus, value, name=name)
             case ElementKind.VOLTAGE_SOURCE:
@@ -93,7 +99,7 @@ class Atlas:
                 if control is None:
                     raise ValueError("A CCVS needs a control element")
                 self._require_element_in_circuit(control)
-                e = CCVS(eid, plus, minus, self._to_real_value(value, kind), control.id, name=name)
+                e = CCVS(eid, plus, minus, to_real_value(value, kind), control.id, name=name)
 
         self.circuit.add_element(e)
         return e
