@@ -175,17 +175,21 @@ def test_a_ccvs_control_cannot_be_deleted_first() -> None:
 
 
 # The README quickstart, built only through the public API: the divider must
-# give 6 V and 2 A.
+# give 6 V and 2 A, in every element and every wire.
 def test_solve_end_to_end() -> None:
     a = Atlas()
     v = a.add_element(ElementKind.VOLTAGE_SOURCE, 10)
     r1 = a.add_element(ElementKind.RESISTOR, 2.0, plus=v.plus)
     r2 = a.add_element(ElementKind.RESISTOR, 3.0, minus=a.ground)
-    a.connect(r1.minus, r2.plus)
-    a.connect(v.minus, a.ground)
+    w1 = a.connect(r1.minus, r2.plus)
+    w2 = a.connect(v.minus, a.ground)
+    assert w1 is not None and w2 is not None
     sol = a.solve(f=50)
     assert sol.voltages[r2.plus.id] == pytest.approx(6)
     assert sol.element_currents == pytest.approx({"V1": -2, "R1": 2, "R2": 2})
+    # 2 A flows from R1 into R2, and 2 A returns from ground into V1's minus
+    # terminal (against the wire's V1- -> ground direction, hence -2).
+    assert sol.wire_currents == pytest.approx({w1.id: 2, w2.id: -2})
 
 
 # The transformer built through the public API must give the same load voltage

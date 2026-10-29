@@ -100,12 +100,14 @@ are removed. An element that controls a CCVS can't be deleted until the CCVS is.
 - `sol.voltages[node_id]`: the voltage of every point, relative to ground.
 - `sol.element_currents[element_id]`: the current through every element.
   A positive current flows through the element from `plus` to `minus`.
+- `sol.wire_currents[wire.id]`: the current through every wire returned by
+  `connect`. A positive current flows from the wire's first point to its second
+  (`connect(a, b)` means from `a` to `b`).
 
 Solving at another frequency is just another `solve` call.
 
 ## Limitations
 
-- **Wire currents** are not computed yet, only element currents.
 - **Errors in a circuit** (a floating point, a shorted voltage source, a loop of
   voltage sources) are reported as "System matrix is singular" without saying
   which part is at fault.

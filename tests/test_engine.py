@@ -13,9 +13,10 @@ from atlas.mna.engine import (
     required_g2,
     solve_system,
     validate_frequency,
+    wire_currents,
 )
 from atlas.mna.labels import KCL, Branch, I, V
-from atlas.model.circuit import Circuit
+from atlas.model.circuit import Circuit, Wire
 from atlas.model.elements import (
     CCVS,
     Capacitor,
@@ -182,6 +183,91 @@ def test_element_current_of_a_g1_current_source_is_its_value() -> None:
     assert element_current(j, j.stamp(50), layout, np.array([10, 6])) == pytest.approx(2)
 
 
+# A wire carries on whatever current arrives at its end. A source feeds 2 A
+# into n1, R1 delivers them into n2, so the wire n2 -> n3 carries 2 A on to R2.
+# Written the other way round (n3 -> n2), the same current comes out negative.
+def test_a_single_wire_carries_the_current_arriving_at_it() -> None:
+    elements = [
+        CurrentSource("I1", GROUND_NODE, N1, 2),
+        Resistor("R1", N1, N2, 1.0),
+        Resistor("R2", N3, GROUND_NODE, 1.0),
+    ]
+    currents = {"I1": 2, "R1": 2, "R2": 2}
+    assert wire_currents([Wire("w", "n2", "n3")], elements, currents) == {"w": 2}
+    assert wire_currents([Wire("w", "n3", "n2")], elements, currents) == {"w": -2}
+
+
+A, B, C = Node("a", ""), Node("b", ""), Node("c", "")
+
+
+# A chain a - b - c with current taken out along the way: 3 A come in at a,
+# 1 A leaves at b, 2 A leave at c. The first wire carries 3 A, the second only
+# what is left (2 A). Peeling must start at the far leaf and work inwards.
+def test_a_chain_of_wires_passes_on_what_is_left() -> None:
+    elements = [
+        CurrentSource("I1", GROUND_NODE, A, 3),
+        Resistor("Rb", B, GROUND_NODE, 1.0),
+        Resistor("Rc", C, GROUND_NODE, 1.0),
+    ]
+    currents = {"I1": 3, "Rb": 1, "Rc": 2}
+    wires = [Wire("ab", "a", "b"), Wire("bc", "b", "c")]
+    assert wire_currents(wires, elements, currents) == pytest.approx({"ab": 3, "bc": 2})
+
+
+# A star: 6 A come into the center and split into three branches. Each wire
+# must carry exactly what its own branch draws, which only works if every leaf
+# is peeled independently.
+def test_a_star_of_wires_splits_the_current() -> None:
+    s, x, y, z = Node("s", ""), Node("x", ""), Node("y", ""), Node("z", "")
+    elements = [
+        CurrentSource("I1", GROUND_NODE, s, 6),
+        Resistor("Rx", x, GROUND_NODE, 1.0),
+        Resistor("Ry", y, GROUND_NODE, 1.0),
+        Resistor("Rz", z, GROUND_NODE, 1.0),
+    ]
+    currents = {"I1": 6, "Rx": 1, "Ry": 2, "Rz": 3}
+    wires = [Wire("sx", "s", "x"), Wire("sy", "s", "y"), Wire("sz", "s", "z")]
+    assert wire_currents(wires, elements, currents) == pytest.approx({"sx": 1, "sy": 2, "sz": 3})
+
+
+# Ground has no KCL row in the matrix, but KCL still holds there. A wire to
+# ground must get its current like any other: the 2 A pushed into a return to
+# ground through the wire.
+def test_a_wire_to_ground() -> None:
+    elements = [CurrentSource("I1", GROUND_NODE, A, 2)]
+    assert wire_currents([Wire("w", "a", "0")], elements, {"I1": 2}) == pytest.approx({"w": 2})
+
+
+# No wires, nothing to report. KCL still has to hold at every node, so a
+# consistent set of element currents must pass the check.
+def test_no_wires() -> None:
+    elements = [CurrentSource("I1", GROUND_NODE, A, 2), Resistor("R", A, GROUND_NODE, 1.0)]
+    assert wire_currents([], elements, {"I1": 2, "R": 2}) == {}
+
+
+# The sanity check: if the element currents broke KCL (which can only happen
+# through a bug), the leftover current must be reported instead of being
+# silently pushed into some wire.
+def test_wire_currents_reject_currents_that_break_kcl() -> None:
+    elements = [
+        CurrentSource("I1", GROUND_NODE, N1, 2),
+        Resistor("R1", N1, N2, 1.0),
+        Resistor("R2", N3, GROUND_NODE, 1.0),
+    ]
+    with pytest.raises(RuntimeError, match="KCL"):
+        wire_currents([Wire("w", "n2", "n3")], elements, {"I1": 2, "R1": 2, "R2": 5})
+
+
+# Peeling can't get through a loop. The circuit never allows one, but if a loop
+# ever got through, it must be reported instead of leaving wires without a
+# current.
+def test_wire_currents_reject_a_loop() -> None:
+    elements = [Resistor("R", A, B, 1.0)]
+    wires = [Wire("w1", "a", "b"), Wire("w2", "b", "a")]
+    with pytest.raises(RuntimeError, match="loop"):
+        wire_currents(wires, elements, {"R": 0})
+
+
 # 10 V source, R1 = 2 Ω from n1 to n2, a wire n2-n3, R2 = 3 Ω from n3 to ground.
 def divider(r1_group: ElementGroup = ElementGroup.G1) -> Circuit:
     c = Circuit()
@@ -202,6 +288,16 @@ def test_voltage_divider(group: ElementGroup) -> None:
     assert sol.voltages["n2"] == sol.voltages["n3"] == pytest.approx(6)
     assert sol.voltages["0"] == 0
     assert sol.element_currents == pytest.approx({"V1": -2, "R1": 2, "R2": 2})
+
+
+# The wire between R1 and R2 carries the same 2 A as both resistors, from n2 to
+# n3. This is the solver filling in wire currents after the matrix solve.
+def test_solve_fills_in_wire_currents() -> None:
+    c = divider()
+    (w,) = c.wires.values()
+    sol = Engine(c, 50).solve()
+    assert (w.n1, w.n2) == ("n2", "n3")
+    assert sol.wire_currents == pytest.approx({w.id: 2})
 
 
 # A circuit driven only by a current source: 2 A into 5 Ω gives 10 V. Checks

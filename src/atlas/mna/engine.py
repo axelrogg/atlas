@@ -1,3 +1,4 @@
+from collections import deque
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
@@ -5,7 +6,7 @@ import numpy as np
 
 from atlas.mna.labels import KCL, V, I, Branch, Col, Row
 from atlas.mna.stamp import Stamp
-from atlas.model.circuit import Circuit
+from atlas.model.circuit import Circuit, Wire
 from atlas.model.elements import CCVS, Element, ElementGroup
 from atlas.model.magnetic_coupling import MagneticCoupling
 from atlas.model.node import GROUND_NODE
@@ -39,6 +40,7 @@ class MatrixLayout:
 class Solution:
     voltages: dict[str, complex]
     element_currents: dict[str, complex]
+    wire_currents: dict[str, complex]
 
 
 def validate_frequency(f: float) -> None:
@@ -157,6 +159,65 @@ def element_current(e: Element, stamp: Stamp, layout: MatrixLayout, solution: np
     return complex(current)
 
 
+def wire_currents(
+    wires: Iterable[Wire],
+    elements: Iterable[Element],
+    element_currents: Mapping[str, complex],
+) -> dict[str, complex]:
+    wires = list(wires)
+
+    # residual[n] is the current that still has to leave node n through its
+    # wires. It starts as what the elements push into n: an element's current
+    # arrives at its minus node and leaves its plus node.
+    residual: dict[str, complex] = {}
+    for e in elements:
+        i = element_currents[e.id]
+        residual[e.plus.id] = residual.get(e.plus.id, 0) - i
+        residual[e.minus.id] = residual.get(e.minus.id, 0) + i
+
+    # The wires at each node whose current isn't known yet.
+    pending: dict[str, list[Wire]] = {}
+    for w in wires:
+        pending.setdefault(w.n1, []).append(w)
+        pending.setdefault(w.n2, []).append(w)
+
+    # Wire loops are rejected by the circuit, so the wires of every net form a
+    # tree. A leaf (a node with a single pending wire) has no other way out, so
+    # that wire must carry the leaf's whole residual. Assigning it moves the
+    # current to the other end, which may become a leaf in turn.
+    currents: dict[str, complex] = {}
+    leaves = deque(n for n, ws in pending.items() if len(ws) == 1)
+    while leaves:
+        n = leaves.popleft()
+        # Its last wire may have been assigned from the other end meanwhile.
+        if len(pending[n]) != 1:
+            continue
+        w = pending[n][0]
+        r = residual.get(n, 0)
+        # Positive current flows n1 -> n2.
+        i = r if n == w.n1 else -r
+        currents[w.id] = complex(i)
+        residual[w.n1] = residual.get(w.n1, 0) - i
+        residual[w.n2] = residual.get(w.n2, 0) + i
+        for end in (w.n1, w.n2):
+            pending[end].remove(w)
+            if len(pending[end]) == 1:
+                leaves.append(end)
+
+    # Sanity check. Every wire must have been reached (no loops), and KCL must
+    # now hold at every node: nothing left to carry away. A failure here is a
+    # bug in the engine, not a mistake in the circuit.
+    if len(currents) != len(wires):
+        raise RuntimeError(f"Assigned {len(currents)} of {len(wires)} wire currents; the wires contain a loop.")
+    scale = max((abs(i) for i in element_currents.values()), default=0.0)
+    tolerance = 1e-9 * max(1.0, scale)
+    for n, r in residual.items():
+        if abs(r) > tolerance:
+            raise RuntimeError(f"KCL does not hold at node {n} after assigning wire currents: {r} A left over.")
+
+    return currents
+
+
 class Engine:
 
     def __init__(self, circuit: Circuit, f: float) -> None:
@@ -193,7 +254,10 @@ class Engine:
         mat, rhs = assemble(layout, [s for _, s in element_stamps] + coupling_stamps)
         solution = solve_system(mat, rhs)
 
+        currents = {e.id: element_current(e, s, layout, solution) for e, s in element_stamps}
+
         return Solution(
             voltages=node_voltages(layout, solution, self.circuit.nodes),
-            element_currents={e.id: element_current(e, s, layout, solution) for e, s in element_stamps},
+            element_currents=currents,
+            wire_currents=wire_currents(self.circuit.wires.values(), self.circuit.elements.values(), currents),
         )
