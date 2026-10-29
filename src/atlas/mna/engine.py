@@ -189,8 +189,13 @@ def wire_currents(
     leaves = deque(n for n, ws in pending.items() if len(ws) == 1)
     while leaves:
         n = leaves.popleft()
-        # Its last wire may have been assigned from the other end meanwhile.
-        if len(pending[n]) != 1:
+        # n joined the queue with one pending wire, but a wire has two ends and
+        # either can assign it. If the node at the other end came out of the
+        # queue first, it already assigned this wire and removed it from n's
+        # list too, so n has nothing left to do. Example: a -ab- b -bc- c.
+        # Popping a assigns ab, and b joins the queue with [bc]. Popping c
+        # assigns bc and empties b's list. When b comes out, it is skipped.
+        if not len(pending[n]):
             continue
         w = pending[n][0]
         r = residual.get(n, 0)
