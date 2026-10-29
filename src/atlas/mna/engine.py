@@ -119,7 +119,8 @@ def node_voltages(layout: MatrixLayout, solution: np.ndarray, node_ids: Iterable
 
     for nid in node_ids:
         i = layout.col(V(nid))
-        voltages[nid] = 0 if i is None else solution[i]
+        # Plain Python complex for every node, ground included, like the currents.
+        voltages[nid] = 0j if i is None else complex(solution[i])
 
     return voltages
 

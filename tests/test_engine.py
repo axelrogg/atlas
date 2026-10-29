@@ -149,6 +149,15 @@ def test_node_voltages_take_their_net_voltage() -> None:
     assert v == {"0": 0, "n1": 10, "n2": 6, "n3": 6}
 
 
+# Results should all be the same plain Python type, whatever numpy returned and
+# whether or not the node is on ground, so users can print, compare and
+# serialize them without surprises (np.complex128 or an int 0 for ground).
+def test_node_voltages_are_plain_complex_numbers() -> None:
+    layout = build_layout(BLOCKS, [])
+    v = node_voltages(layout, np.array([10, 6], dtype=complex), ["0", "n1", "n3"])
+    assert all(type(x) is complex for x in v.values())
+
+
 # For a G1 element, evaluating its own KCL(plus) entries must give Ohm's law:
 # (10 - 6) / 2 = 2 A.
 def test_element_current_of_a_g1_element_is_its_admittance_times_its_voltage() -> None:
