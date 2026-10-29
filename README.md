@@ -128,9 +128,24 @@ src/atlas/
 
 ```sh
 poetry install
-poetry run pre-commit install   # run the tests before every commit
+poetry run pre-commit install   # install the git hooks
 poetry run pytest
 ```
 
-The pre-commit hook runs the whole test suite and blocks the commit if a test
-fails.
+The hooks block a commit if a test fails or if the commit message doesn't follow
+[Conventional Commits](https://www.conventionalcommits.org/) (`feat: ...`,
+`fix: ...`, `test: ...`, `docs: ...`, `refactor: ...`, `build: ...`).
+
+### Releasing
+
+The version lives in `pyproject.toml` (and is available as `atlas.__version__`).
+To release, run:
+
+```sh
+poetry run cz bump
+```
+
+It picks the next version from the commits since the last tag (`fix` → patch,
+`feat` → minor, breaking change → major; below 1.0 a breaking change bumps the
+minor version), updates `pyproject.toml` and `CHANGELOG.md`, commits, and creates
+a signed `vX.Y.Z` tag.
