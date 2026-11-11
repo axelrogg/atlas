@@ -3,7 +3,7 @@ import math
 import pytest
 
 from atlas import Simulator, ElementKind
-from atlas.model.elements import CCVS
+from atlas.core.model.elements import CCVS
 from atlas._atlas import next_id, to_real_value
 
 

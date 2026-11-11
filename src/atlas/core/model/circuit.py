@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from atlas.model.elements import CCVS, Element
-from atlas.model.magnetic_coupling import MagneticCoupling
-from atlas.structs.diset import DisjointSet
-from atlas.structs.graph import DiGraph, Edge
-from atlas.model.node import GROUND_NODE, Node
+from atlas.core.model.elements import CCVS, Element
+from atlas.core.model.magnetic_coupling import MagneticCoupling
+from atlas.core.structs.diset import DisjointSet
+from atlas.core.structs.graph import DiGraph, Edge
+from atlas.core.model.node import GROUND_NODE, Node
 
 # For when i decide to rebuild the net lazily
 class CircuitNetsState(Enum):

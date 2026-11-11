@@ -1,9 +1,9 @@
 import pytest
 
-from atlas.model.circuit import Circuit
-from atlas.model.elements import CCVS, Inductor, Resistor, VoltageSource
-from atlas.model.magnetic_coupling import MagneticCoupling
-from atlas.model.node import GROUND_NODE, Node
+from atlas.core.model.circuit import Circuit
+from atlas.core.model.elements import CCVS, Inductor, Resistor, VoltageSource
+from atlas.core.model.magnetic_coupling import MagneticCoupling
+from atlas.core.model.node import GROUND_NODE, Node
 
 N1, N2, N3 = Node("n1", ""), Node("n2", ""), Node("n3", "")
 

@@ -4,13 +4,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from atlas.mna.labels import KCL, V, I, Branch, Col, Row
-from atlas.mna.stamp import Stamp
-from atlas.model.circuit import Circuit, Wire
-from atlas.model.elements import CCVS, Element, ElementGroup, Fixator
-from atlas.model.magnetic_coupling import MagneticCoupling
-from atlas.model.node import GROUND_NODE
-from atlas.utils import is_number_valid
+from atlas.core.mna.labels import KCL, V, I, Branch, Col, Row
+from atlas.core.mna.stamp import Stamp
+from atlas.core.model.circuit import Circuit, Wire
+from atlas.core.model.elements import CCVS, Element, ElementGroup, Fixator
+from atlas.core.model.magnetic_coupling import MagneticCoupling
+from atlas.core.model.node import GROUND_NODE
+from atlas.core.utils import is_number_valid
 
 
 @dataclass(frozen=True)

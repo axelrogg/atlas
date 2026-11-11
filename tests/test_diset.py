@@ -1,4 +1,4 @@
-from atlas.structs.diset import DisjointSet
+from atlas.core.structs.diset import DisjointSet
 
 
 # The circuit calls add() for a node every time it shows up (in a wire, in an

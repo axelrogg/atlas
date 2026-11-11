@@ -2,9 +2,9 @@ import math
 
 import pytest
 
-from atlas.mna.labels import KCL, Branch, I, V
-from atlas.mna.stamp import StampEntry, StampRHSEntry
-from atlas.model.elements import (
+from atlas.core.mna.labels import KCL, Branch, I, V
+from atlas.core.mna.stamp import StampEntry, StampRHSEntry
+from atlas.core.model.elements import (
     CCVS,
     Capacitor,
     CurrentSource,
@@ -17,8 +17,8 @@ from atlas.model.elements import (
     Resistor,
     VoltageSource,
 )
-from atlas.model.node import GROUND_NODE, Node
-from atlas.utils import omega
+from atlas.core.model.node import GROUND_NODE, Node
+from atlas.core.utils import omega
 
 P, M = Node("p", ""), Node("m", "")
 

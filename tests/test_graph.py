@@ -1,6 +1,6 @@
 import pytest
 
-from atlas.structs.graph import DiGraph, Edge
+from atlas.core.structs.graph import DiGraph, Edge
 
 
 # Adding an element or wire adds an edge, and its terminals may not exist as

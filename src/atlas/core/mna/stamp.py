@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from atlas.mna.labels import Col, Row
+from atlas.core.mna.labels import Col, Row
 
 
 @dataclass(frozen=True)

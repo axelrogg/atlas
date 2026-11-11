@@ -3,10 +3,10 @@ from dataclasses import dataclass, field
 from enum import Enum, auto, unique
 from typing import ClassVar
 
-from atlas.mna.labels import KCL, Branch, V, I
-from atlas.mna.stamp import Stamp, StampEntry, StampRHSEntry
-from atlas.model.node import Node
-from atlas.utils import is_number_valid, omega
+from atlas.core.mna.labels import KCL, Branch, V, I
+from atlas.core.mna.stamp import Stamp, StampEntry, StampRHSEntry
+from atlas.core.model.node import Node
+from atlas.core.utils import is_number_valid, omega
 
 
 # Each value is the id prefix for that kind (SPICE letters). Values must stay

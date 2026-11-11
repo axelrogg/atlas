@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from atlas.utils import is_number_valid, omega
+from atlas.core.utils import is_number_valid, omega
 
 
 # Every element validates its value with is_number_valid, so ordinary finite

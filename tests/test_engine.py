@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from atlas.mna.engine import (
+from atlas.core.mna.engine import (
     Engine,
     MatrixLayout,
     assemble,
@@ -16,9 +16,9 @@ from atlas.mna.engine import (
     validate_frequency,
     wire_currents,
 )
-from atlas.mna.labels import KCL, Branch, I, V
-from atlas.model.circuit import Circuit, Wire
-from atlas.model.elements import (
+from atlas.core.mna.labels import KCL, Branch, I, V
+from atlas.core.model.circuit import Circuit, Wire
+from atlas.core.model.elements import (
     CCVS,
     Capacitor,
     CurrentSource,
@@ -30,8 +30,8 @@ from atlas.model.elements import (
     Resistor,
     VoltageSource,
 )
-from atlas.model.magnetic_coupling import MagneticCoupling
-from atlas.model.node import GROUND_NODE, Node
+from atlas.core.model.magnetic_coupling import MagneticCoupling
+from atlas.core.model.node import GROUND_NODE, Node
 
 N1, N2, N3 = Node("n1", ""), Node("n2", ""), Node("n3", "")
 # Ground on its own, n1 on its own, and n2 and n3 wired into one net named n2.

@@ -1,8 +1,8 @@
 from collections.abc import Container
 
-from atlas.mna.engine import Engine, Solution
-from atlas.model.circuit import Circuit, Wire
-from atlas.model.elements import (
+from atlas.core.mna.engine import Engine, Solution
+from atlas.core.model.circuit import Circuit, Wire
+from atlas.core.model.elements import (
     CCVS,
     Capacitor,
     CurrentSource,
@@ -15,8 +15,8 @@ from atlas.model.elements import (
     Resistor,
     VoltageSource,
 )
-from atlas.model.magnetic_coupling import MagneticCoupling
-from atlas.model.node import Node
+from atlas.core.model.magnetic_coupling import MagneticCoupling
+from atlas.core.model.node import Node
 
 
 def next_id(prefix: str, last: int, taken: Container[str]) -> tuple[str, int]:

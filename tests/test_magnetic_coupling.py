@@ -2,10 +2,10 @@ import math
 
 import pytest
 
-from atlas.mna.labels import Branch, I
-from atlas.mna.stamp import StampEntry
-from atlas.model.magnetic_coupling import MagneticCoupling
-from atlas.utils import omega
+from atlas.core.mna.labels import Branch, I
+from atlas.core.mna.stamp import StampEntry
+from atlas.core.model.magnetic_coupling import MagneticCoupling
+from atlas.core.utils import omega
 
 
 # A coupling is given by exactly one of m (mutual inductance) or z (mutual
