@@ -194,6 +194,7 @@ class Circuit:
         if k.id in self.couplings:
             raise ValueError(f"Duplicate coupling with id: {k.id}")
 
+        # Here we check that the elements being coupled exist and are couplable.
         for eid in (k.a_id, k.b_id):
             e = self.elements.get(eid)
             if e is None:
@@ -204,6 +205,7 @@ class Circuit:
         # TODO(validation): physical coupling limit. For m: |M| <= sqrt(L1 * L2).
         # For a complex z: a passivity condition on the real parts.
 
+        # Is there an intersection between the sets of couplings for the two elements? If so, they are already coupled.
         shared = self._couplings_of.get(k.a_id, set()) & self._couplings_of.get(k.b_id, set())
         if shared:
             raise ValueError(f"Elements {k.a_id} and {k.b_id} are already coupled by: {shared.pop()}")
