@@ -8,8 +8,10 @@ from atlas.model.elements import (
     CurrentSource,
     Element,
     ElementKind,
+    Fixator,
     Impedance,
     Inductor,
+    Norator,
     Resistor,
     VoltageSource,
 )
@@ -26,6 +28,12 @@ def next_id(prefix: str, last: int, taken: Container[str]) -> tuple[str, int]:
             return candidate, n
 
 
+def required_value(value: complex | None, kind: ElementKind) -> complex:
+    if value is None:
+        raise ValueError(f"Element of kind {kind} needs a value")
+    return value
+
+
 def to_real_value(value: complex, kind: ElementKind) -> float:
     if isinstance(value, complex):
         if value.imag != 0:
@@ -34,7 +42,7 @@ def to_real_value(value: complex, kind: ElementKind) -> float:
     return value
 
 
-class Atlas:
+class Simulator:
 
     def __init__(self) -> None:
         self.circuit: Circuit = Circuit()
@@ -60,46 +68,68 @@ class Atlas:
     def add_element(
         self,
         kind: ElementKind,
-        value: complex,
+        value: complex | None = None,
         plus: Node | None = None,
         minus: Node | None = None,
         control: Element | None = None,
         name: str = "",
+        voltage: complex | None = None,
+        current: complex | None = None
     ) -> Element:
+        # Refuse arguments the kind doesn't use instead of silently ignoring them.
+        # These checks come before the id is generated, so a rejected call
+        # doesn't use up an id.
+        if kind in (ElementKind.FIXATOR, ElementKind.NORATOR):
+            if value is not None:
+                raise ValueError(f"Element of kind {kind} takes no value, got {value}")
+        elif value is None:
+            raise ValueError(f"Element of kind {kind} needs a value")
+        if kind is not ElementKind.FIXATOR and (voltage is not None or current is not None):
+            raise ValueError(f"Only a fixator takes a voltage and a current, got kind {kind}")
+        if control is not None and kind is not ElementKind.CCVS:
+            raise ValueError(f"Only a CCVS takes a control element, got kind {kind}")
+
         eid = self._new_id(kind.value, self.circuit.elements)
 
         # A terminal that isn't connected at creation gets its own fresh node.
+        # Node ids are plain integers ("1", "2", ...): the empty prefix keeps
+        # them apart from element ids, and taken ids (ground is "0") are skipped.
         if plus is None:
-            plus = Node(f"{eid}+", "")
+            plus = Node(self._new_id("", self.circuit.nodes), "")
         else:
             self._require_node_in_circuit(plus)
         if minus is None:
-            minus = Node(f"{eid}-", "")
+            minus = Node(self._new_id("", self.circuit.nodes), "")
         else:
             self._require_node_in_circuit(minus)
-
-        if control is not None and kind is not ElementKind.CCVS:
-            raise ValueError(f"Only a CCVS takes a control element, got kind {kind}")
 
         e: Element
         match kind:
             case ElementKind.RESISTOR:
-                e = Resistor(eid, plus, minus, to_real_value(value, kind), name=name)
+                e = Resistor(eid, plus, minus, to_real_value(required_value(value, kind), kind), name=name)
             case ElementKind.INDUCTOR:
-                e = Inductor(eid, plus, minus, to_real_value(value, kind), name=name)
+                e = Inductor(eid, plus, minus, to_real_value(required_value(value, kind), kind), name=name)
             case ElementKind.CAPACITOR:
-                e = Capacitor(eid, plus, minus, to_real_value(value, kind), name=name)
+                e = Capacitor(eid, plus, minus, to_real_value(required_value(value, kind), kind), name=name)
             case ElementKind.IMPEDANCE:
-                e = Impedance(eid, plus, minus, value, name=name)
+                e = Impedance(eid, plus, minus, required_value(value, kind), name=name)
             case ElementKind.VOLTAGE_SOURCE:
-                e = VoltageSource(eid, plus, minus, value, name=name)
+                e = VoltageSource(eid, plus, minus, required_value(value, kind), name=name)
             case ElementKind.CURRENT_SOURCE:
-                e = CurrentSource(eid, plus, minus, value, name=name)
+                e = CurrentSource(eid, plus, minus, required_value(value, kind), name=name)
+            case ElementKind.FIXATOR:
+                if voltage is None:
+                    raise ValueError("A Fixator needs a voltage value")
+                if current is None:
+                    raise ValueError("A Fixator needs a current value")
+                e = Fixator(eid, plus, minus, voltage=voltage, current=current, name=name)
+            case ElementKind.NORATOR:
+                e = Norator(eid, plus, minus, name=name)
             case ElementKind.CCVS:
                 if control is None:
                     raise ValueError("A CCVS needs a control element")
                 self._require_element_in_circuit(control)
-                e = CCVS(eid, plus, minus, to_real_value(value, kind), control.id, name=name)
+                e = CCVS(eid, plus, minus, to_real_value(required_value(value, kind), kind), control.id, name=name)
 
         self.circuit.add_element(e)
         return e
