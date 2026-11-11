@@ -8,7 +8,7 @@ frequency, and get every node voltage and every element current back as complex
 phasors.
 
 > **Status:** early. The solver works for the elements listed below, but cable
-> models, ports, wire currents and most validation are still to come (see
+> models, ports and most validation are still to come (see
 > [Limitations](#limitations)).
 
 ## Install
@@ -24,18 +24,18 @@ poetry install
 A 10 V source driving two resistors in series:
 
 ```python
-from atlas import Atlas, ElementKind
+from atlas import ElementKind, Simulator
 
-atlas = Atlas()
+sim = Simulator()
 
-v1 = atlas.add_element(ElementKind.VOLTAGE_SOURCE, 10)
-r1 = atlas.add_element(ElementKind.RESISTOR, 2.0, plus=v1.plus)
-r2 = atlas.add_element(ElementKind.RESISTOR, 3.0, minus=atlas.ground)
+v1 = sim.add_element(ElementKind.VOLTAGE_SOURCE, 10)
+r1 = sim.add_element(ElementKind.RESISTOR, 2.0, plus=v1.plus)
+r2 = sim.add_element(ElementKind.RESISTOR, 3.0, minus=sim.ground)
 
-atlas.connect(r1.minus, r2.plus)
-atlas.connect(v1.minus, atlas.ground)
+sim.connect(r1.minus, r2.plus)
+sim.connect(v1.minus, sim.ground)
 
-sol = atlas.solve(f=50)
+sol = sim.solve(f=50)
 
 sol.voltages[r2.plus.id]       # 6 V
 sol.element_currents[r1.id]    # 2 A
@@ -49,12 +49,14 @@ Values are complex numbers and carry the usual floating-point rounding, so
 
 ### Elements and terminals
 
-`add_element(kind, value, plus=None, minus=None, control=None, name="")` creates
-an element and returns it. Every element has two terminals, `plus` and `minus`.
+`add_element(kind, value=None, plus=None, minus=None, control=None, name="",
+voltage=None, current=None)` creates an element and returns it. Every element
+has two terminals, `plus` and `minus`.
 
-- A terminal you don't pass gets its own new point (named `R1+`, `R1-`, ...).
+- A terminal you don't pass gets its own new point, with an integer id (`1`, `2`, ...;
+  ground is `0`).
 - A terminal you do pass is shared: `plus=v1.plus` puts the new element on the
-  same point as `v1`'s plus terminal. `atlas.ground` is the reference point (0 V).
+  same point as `v1`'s plus terminal. `sim.ground` is the reference point (0 V).
 
 You never create nodes or ids yourself. Ids are generated per kind:
 
@@ -67,18 +69,45 @@ You never create nodes or ids yourself. Ids are generated per kind:
 | Voltage source | `VOLTAGE_SOURCE` | voltage (V, complex) | `V` |
 | Current source | `CURRENT_SOURCE` | current (A, complex) | `I` |
 | Current-controlled voltage source | `CCVS` | gain (Ω, real), plus `control=<element>` | `H` |
+| Fixator | `FIXATOR` | none; `voltage=` (V) and `current=` (A) instead | `FX` |
+| Norator | `NORATOR` | none | `NR` |
 
 `name` is an optional display label; it doesn't affect the element's identity.
+Arguments a kind doesn't use are refused rather than ignored: a `value` for a
+fixator or norator, `voltage`/`current` for anything but a fixator, `control`
+for anything but a CCVS.
+
+### Fixators and norators
+
+They describe what is *known* where the circuit meets the outside world:
+
+- A **fixator** imposes both the voltage across it and the current through it
+  (for example "10 V and 2 A at the input").
+- A **norator** imposes nothing; its voltage and current are whatever the circuit
+  makes them (for example "the output, where nothing is known").
+
+They always come in pairs: a fixator adds one condition too many and a norator
+one too few, so `solve` refuses a circuit with more of one than the other.
+
+```python
+fx = sim.add_element(ElementKind.FIXATOR, minus=sim.ground, voltage=10, current=-2)
+r = sim.add_element(ElementKind.RESISTOR, 2.0, plus=fx.plus)
+nr = sim.add_element(ElementKind.NORATOR, plus=r.minus, minus=sim.ground)
+# V at the output = 10 - 2 * 2 = 6 V, and 2 A leave through the norator.
+```
+
+Like every element, a fixator's `current` is positive from `plus` to `minus`, so
+current fed *into* the circuit from ground is negative.
 
 ### Connecting
 
-`atlas.connect(a, b)` makes two terminals the same point and returns the wire it
+`sim.connect(a, b)` makes two terminals the same point and returns the wire it
 created. Connecting two points that are already connected does nothing and
 returns `None`, so you can connect freely without creating loops of wires.
 
 ### Mutual coupling
 
-`atlas.couple_elements(a, b, m=...)` couples two elements by a mutual inductance
+`sim.couple_elements(a, b, m=...)` couples two elements by a mutual inductance
 `m` (H), or `z=...` for a complex mutual impedance (Ω). Resistors, inductors,
 capacitors and impedances can be coupled.
 
@@ -88,13 +117,13 @@ reverses the mutual voltage.
 
 ### Removing
 
-`atlas.delete_element(e)` and `atlas.delete_wire(w)` remove things again.
+`sim.delete_element(e)` and `sim.delete_wire(w)` remove things again.
 Deleting an element also deletes its couplings. Points left with nothing attached
 are removed. An element that controls a CCVS can't be deleted until the CCVS is.
 
 ### Results
 
-`atlas.solve(f)` solves at frequency `f` (Hz, must be positive) and returns a
+`sim.solve(f)` solves at frequency `f` (Hz, must be positive) and returns a
 `Solution`:
 
 - `sol.voltages[node_id]`: the voltage of every point, relative to ground.
@@ -119,11 +148,12 @@ Solving at another frequency is just another `solve` call.
 
 ```
 src/atlas/
-  _atlas.py      Atlas, the public entry point
-  model/         circuit, elements, nodes, couplings, ports
-  mna/           matrix layout, stamps and the solver engine
-  structs/       disjoint set and graph
-  utils.py
+  _atlas.py        Simulator, the public entry point
+  core/
+    model/         circuit, elements, nodes, couplings
+    mna/           matrix layout, stamps and the solver engine
+    structs/       disjoint set and graph
+    utils.py
 ```
 
 ## Development
