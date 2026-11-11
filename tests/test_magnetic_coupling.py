@@ -12,12 +12,12 @@ from atlas.utils import omega
 # impedance). Both or neither is ambiguous, and NaN or inf would poison the
 # matrix, so all of these must be refused.
 @pytest.mark.parametrize(
-    "kwargs",
-    [dict(m=0.5, z=1j), dict(), dict(m=math.nan), dict(z=complex(math.inf, 0))],
+    "m, z",
+    [(0.5, 1j), (None, None), (math.nan, None), (None, complex(math.inf, 0))],
 )
-def test_invalid_values_are_rejected(kwargs: dict) -> None:
+def test_invalid_values_are_rejected(m: float | None, z: complex | None) -> None:
     with pytest.raises(ValueError):
-        MagneticCoupling("K1", "L1", "L2", **kwargs)
+        MagneticCoupling("K1", "L1", "L2", m=m, z=z)
 
 
 # Coupling an element with itself would add a second self-impedance term to its
