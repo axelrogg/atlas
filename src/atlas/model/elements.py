@@ -20,6 +20,8 @@ class ElementKind(Enum):
     VOLTAGE_SOURCE = "V"
     CURRENT_SOURCE = "I"
     CCVS = "H"
+    FIXATOR = "FX"
+    NORATOR = "NR"
     #VCVS = "E"
     #VCCS = "G"
     #CCCS = "F"
@@ -28,6 +30,8 @@ class ElementKind(Enum):
 class ElementGroup(Enum):
     G1 = auto()
     G2 = auto()
+    FX = auto()
+    NR = auto()
 
 
 @dataclass(frozen=True)
@@ -50,10 +54,24 @@ class Element(ABC):
             object.__setattr__(self, "name", self.id)
         if self.plus == self.minus:
             raise ValueError(f"Element {self.name} has the same plus and minus nodes: {self.plus}. No self-loops allowed.")
+        # FX and NR belong to the fixator and norator only, from the moment an
+        # element is created (regroup guards the same rule afterwards).
+        if self.group in {ElementGroup.FX, ElementGroup.NR} and self.kind not in {ElementKind.FIXATOR, ElementKind.NORATOR}:
+            raise ValueError(f"Element {self.name} of kind {self.kind} cannot be in group {self.group}; it is reserved for fixators and norators.")
 
     def regroup(self, g: ElementGroup) -> None:
         if self.kind in {ElementKind.VOLTAGE_SOURCE, ElementKind.CCVS}:
             raise ValueError(f"Element {self.name} of kind {self.kind} cannot be regrouped; it is always in group G2.")
+        if self.kind == ElementKind.FIXATOR:
+            raise ValueError(f"Element {self.name} of kind {self.kind} cannot be regrouped; it is always in group FX.")
+        if self.kind == ElementKind.NORATOR:
+            raise ValueError(f"Element {self.name} of kind {self.kind} cannot be regrouped; it is always in group NR.")
+        # FX and NR belong to the fixator and norator only. Another element in
+        # them would get a row without a column (or the other way round) that its
+        # own stamp doesn't match.
+        if g in {ElementGroup.FX, ElementGroup.NR}:
+            raise ValueError(f"Element {self.name} of kind {self.kind} cannot be regrouped to {g}; it is reserved for fixators and norators.")
+
         object.__setattr__(self, "group", g)
 
     def rename(self, name: str) -> None:
@@ -327,5 +345,65 @@ class CCVS(Element):
                 StampEntry(Branch(self.id), V(p), 1),
                 StampEntry(Branch(self.id), V(m), - 1),
                 StampEntry(Branch(self.id), I(self.control_id), - self.gain),
+            ]
+        )
+
+
+@dataclass(frozen=True)
+class Fixator(Element):
+    kind: ClassVar[ElementKind] = ElementKind.FIXATOR
+    group: ElementGroup = field(default=ElementGroup.FX, kw_only=True, compare=False)
+    voltage: complex
+    current: complex
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        if self.group is not ElementGroup.FX:
+            raise ValueError(f"Fixator {self.name} must be in group FX")
+
+        if not is_number_valid(self.voltage):
+            raise ValueError(f"Fixator {self.name} must have a finite voltage, got {self.voltage}.")
+        if not is_number_valid(self.current):
+            raise ValueError(f"Fixator {self.name} must have a finite current, got {self.current}.")
+
+    def regroup(self, g: ElementGroup) -> None:
+        raise ValueError(f"Fixator {self.name} cannot be regrouped; it is always in group FX.")
+
+    def stamp(self, f: float) -> Stamp:
+        p, m = self.plus.id, self.minus.id
+        return Stamp(
+            entries=[
+                StampEntry(Branch(self.id), V(p), 1),
+                StampEntry(Branch(self.id), V(m), - 1),
+            ],
+            rhs=[
+                StampRHSEntry(KCL(p), - self.current),
+                StampRHSEntry(KCL(m), self.current),
+                StampRHSEntry(Branch(self.id), self.voltage)
+            ]
+        )
+
+
+@dataclass(frozen=True)
+class Norator(Element):
+    kind: ClassVar[ElementKind] = ElementKind.NORATOR
+    group: ElementGroup = field(default=ElementGroup.NR, kw_only=True, compare=False)
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        if self.group is not ElementGroup.NR:
+            raise ValueError(f"Norator {self.name} must be in group NR")
+
+    def regroup(self, g: ElementGroup) -> None:
+        raise ValueError(f"Norator {self.name} cannot be regrouped; it is always in group NR")
+
+    def stamp(self, f: float) -> Stamp:
+        p, m = self.plus.id, self.minus.id
+        return Stamp(
+            entries=[
+                StampEntry(KCL(p), I(self.id), 1),
+                StampEntry(KCL(m), I(self.id), -1),
             ]
         )

@@ -7,7 +7,7 @@ import numpy as np
 from atlas.mna.labels import KCL, V, I, Branch, Col, Row
 from atlas.mna.stamp import Stamp
 from atlas.model.circuit import Circuit, Wire
-from atlas.model.elements import CCVS, Element, ElementGroup
+from atlas.model.elements import CCVS, Element, ElementGroup, Fixator
 from atlas.model.magnetic_coupling import MagneticCoupling
 from atlas.model.node import GROUND_NODE
 from atlas.utils import is_number_valid
@@ -58,9 +58,26 @@ def required_g2(elements: Mapping[str, Element], couplings: Iterable[MagneticCou
         if isinstance(e, CCVS):
             if e.control_id not in elements:
                 raise ValueError(f"CCVS {e.id} refers to unknown control element: {e.control_id}")
+            # A fixator's current is known, so it has no current column for the
+            # CCVS to refer to.
+            if isinstance(elements[e.control_id], Fixator):
+                raise ValueError(f"CCVS {e.id} cannot be controlled by fixator {e.control_id}")
             needs_g2.add(e.control_id)
 
     return needs_g2
+
+
+def check_fixators_and_norators(elements: Iterable[Element]) -> None:
+    # Every other element adds as many rows as columns. A fixator adds a row
+    # without a column and a norator a column without a row, so the system is
+    # only square when there are as many of one as of the other.
+    groups = [e.group for e in elements]
+    fixators, norators = groups.count(ElementGroup.FX), groups.count(ElementGroup.NR)
+    if fixators != norators:
+        raise ValueError(
+            f"Circuit has {fixators} fixator(s) but {norators} norator(s); every fixator "
+            "(known voltage and current) needs a norator (unknown voltage and current) to balance it."
+        )
 
 
 def build_layout(net_blocks: Iterable[list[str]], elements: Iterable[Element]) -> MatrixLayout:
@@ -78,11 +95,14 @@ def build_layout(net_blocks: Iterable[list[str]], elements: Iterable[Element]) -
             rows[KCL(net)] = len(rows)
             cols[V(net)] = len(cols)
 
-    # Now we assign rows and columns to the branch currents of the
-    # elements only if they are in group G2 (i.e., they have a branch current variable).
+    # Now the elements' own rows and columns. A G2 element has both a branch
+    # equation and an unknown current. A fixator only has the equation (its
+    # current is known), a norator only the unknown current (it has no
+    # equation). G1 elements add nothing.
     for e in elements:
-        if e.group is ElementGroup.G2:
+        if e.group in (ElementGroup.G2, ElementGroup.FX):
             rows[Branch(e.id)] = len(rows)
+        if e.group in (ElementGroup.G2, ElementGroup.NR):
             cols[I(e.id)] = len(cols)
 
     return MatrixLayout(rows=rows, cols=cols, net_of_node=net_of_node)
@@ -96,7 +116,11 @@ def assemble(layout: MatrixLayout, stamps: Iterable[Stamp]) -> tuple[np.ndarray,
     for s in stamps:
         for entry in s.entries:
             row, col = layout.row(entry.row), layout.col(entry.col)
-            if row is not None and col is not None:  # if the given stamp has nothing to do with ground node
+            # We skip a stamp entry that contains ground node in its row or column,
+            # because the ground node has no row or column in the matrix.
+            # The entry is effectively zeroed out, which is correct: a KCL equation
+            # at ground is not written, and a voltage variable for ground is always zero.
+            if row is not None and col is not None:
                 mat[row, col] += entry.value
 
         for entry in s.rhs:
@@ -242,6 +266,7 @@ class Engine:
         # to ground (graph BFS from ground) instead of failing later with a
         # singular matrix.
         self._resolve_element_groups()
+        check_fixators_and_norators(self.circuit.elements.values())
         layout = build_layout(self.circuit.netblocks(), self.circuit.elements.values())
         if len(layout.rows) == 0:
             raise ValueError("Circuit has no unknowns to solve for.")

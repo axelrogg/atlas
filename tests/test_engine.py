@@ -8,6 +8,7 @@ from atlas.mna.engine import (
     MatrixLayout,
     assemble,
     build_layout,
+    check_fixators_and_norators,
     element_current,
     node_voltages,
     required_g2,
@@ -22,8 +23,10 @@ from atlas.model.elements import (
     Capacitor,
     CurrentSource,
     ElementGroup,
+    Fixator,
     Impedance,
     Inductor,
+    Norator,
     Resistor,
     VoltageSource,
 )
@@ -63,6 +66,17 @@ def test_required_g2_collects_coupled_elements_and_ccvs_controls() -> None:
     assert required_g2(elements, couplings) == {"R1", "L1", "L2"}
 
 
+# A fixator's current is known and has no column, so a CCVS can't refer to it.
+# This must be caught with a clear message, not as a missing label later.
+def test_required_g2_rejects_a_fixator_as_ccvs_control() -> None:
+    elements = {
+        "FX1": Fixator("FX1", N1, GROUND_NODE, voltage=1, current=0),
+        "H1": CCVS("H1", N2, GROUND_NODE, 1.0, "FX1"),
+    }
+    with pytest.raises(ValueError, match="fixator"):
+        required_g2(elements, [])
+
+
 # A CCVS added directly to a circuit isn't checked when it is added, so this is
 # where a control that doesn't exist has to be caught, with a clear message.
 def test_required_g2_rejects_an_unknown_ccvs_control() -> None:
@@ -84,6 +98,30 @@ def test_build_layout_gives_kcl_and_v_per_non_ground_net_then_g2_elements() -> N
     assert layout.rows == {KCL("n1"): 0, KCL("n2"): 1, Branch("V1"): 2, Branch("R2"): 3}
     assert layout.cols == {V("n1"): 0, V("n2"): 1, I("V1"): 2, I("R2"): 3}
     assert layout.net_of_node == {"0": "0", "n1": "n1", "n2": "n2", "n3": "n2"}
+
+
+# A fixator gets a branch row but no current column, and a norator a current
+# column but no branch row. Together they keep the matrix square.
+def test_build_layout_gives_a_fixator_a_row_and_a_norator_a_column() -> None:
+    elements = [Fixator("FX1", N1, GROUND_NODE, voltage=10, current=-2), Norator("NR1", N2, GROUND_NODE)]
+    layout = build_layout(BLOCKS, elements)
+    assert Branch("FX1") in layout.rows and I("FX1") not in layout.cols
+    assert I("NR1") in layout.cols and Branch("NR1") not in layout.rows
+    assert len(layout.rows) == len(layout.cols)
+
+
+# Each fixator brings one equation too many and each norator one unknown too
+# many. If they don't come in equal numbers the system can't be solved, and the
+# user must be told why instead of getting a non-square matrix.
+def test_fixators_and_norators_must_balance() -> None:
+    fx = Fixator("FX1", N1, GROUND_NODE, voltage=10, current=-2)
+    nr = Norator("NR1", N2, GROUND_NODE)
+    check_fixators_and_norators([fx, nr])
+    check_fixators_and_norators([])
+    with pytest.raises(ValueError, match="1 fixator"):
+        check_fixators_and_norators([fx])
+    with pytest.raises(ValueError, match="1 norator"):
+        check_fixators_and_norators([nr])
 
 
 # Stamps refer to nodes, not nets. A label on n3 must land on n2's row, a label
@@ -404,6 +442,45 @@ def test_solve_promotes_coupled_elements_and_ccvs_controls_to_g2() -> None:
     assert c.elements["L1"].group is ElementGroup.G2
     assert c.elements["L2"].group is ElementGroup.G2
     assert c.elements["R"].group is ElementGroup.G1
+
+
+# 10 V and 2 A known at n1 (the 2 A flow into n1, so the fixator's own
+# plus -> minus current is -2), R1 = 2 ohm to n2, and nothing known at n2. The
+# solver must find V(n2) = 10 - 2 * 2 = 6 V and 2 A leaving through the norator.
+def test_fixator_and_norator_solve_an_input_output_case() -> None:
+    c = Circuit()
+    c.add_element(Fixator("FX1", N1, GROUND_NODE, voltage=10, current=-2))
+    c.add_element(Resistor("R1", N1, N2, 2.0))
+    c.add_element(Norator("NR1", N2, GROUND_NODE))
+    sol = Engine(c, 50).solve()
+    assert sol.voltages["n1"] == pytest.approx(10)
+    assert sol.voltages["n2"] == pytest.approx(6)
+    assert sol.element_currents == pytest.approx({"FX1": -2, "R1": 2, "NR1": 2})
+
+
+# With a load at the output, the current known at the input splits between the
+# load and the norator: 6 V across 6 ohm takes 1 A, so 1 A is left for the
+# norator.
+def test_fixator_and_norator_with_a_load_at_the_output() -> None:
+    c = Circuit()
+    c.add_element(Fixator("FX1", N1, GROUND_NODE, voltage=10, current=-2))
+    c.add_element(Resistor("R1", N1, N2, 2.0))
+    c.add_element(Resistor("R2", N2, GROUND_NODE, 6.0))
+    c.add_element(Norator("NR1", N2, GROUND_NODE))
+    sol = Engine(c, 50).solve()
+    assert sol.voltages["n2"] == pytest.approx(6)
+    assert sol.element_currents["R2"] == pytest.approx(1)
+    assert sol.element_currents["NR1"] == pytest.approx(1)
+
+
+# A fixator without a norator can't be solved; the engine must say so before it
+# builds the matrix.
+def test_engine_rejects_an_unbalanced_fixator() -> None:
+    c = Circuit()
+    c.add_element(Fixator("FX1", N1, GROUND_NODE, voltage=10, current=-2))
+    c.add_element(Resistor("R1", N1, GROUND_NODE, 2.0))
+    with pytest.raises(ValueError, match="norator"):
+        Engine(c, 50).solve()
 
 
 # A circuit with only ground gives a 0x0 matrix, which numpy would "solve"

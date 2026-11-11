@@ -10,8 +10,10 @@ from atlas.model.elements import (
     CurrentSource,
     ElementGroup,
     ElementKind,
+    Fixator,
     Impedance,
     Inductor,
+    Norator,
     Resistor,
     VoltageSource,
 )
@@ -227,3 +229,66 @@ def test_ccvs_stamp_refers_to_its_control_current() -> None:
     s = CCVS("H1", P, GROUND_NODE, 4.0, "R1").stamp(50)
     assert StampEntry(Branch("H1"), I("R1"), -4.0) in s.entries
     assert StampEntry(Branch("H1"), V("p"), 1) in s.entries
+
+
+# A fixator fixes the voltage across it and carries a known current, so it
+# writes a branch equation V(p) - V(m) = voltage and puts its known current on
+# the rhs like a G1 current source does (leaving p, arriving at m). It has no
+# current column of its own.
+def test_fixator_stamp() -> None:
+    s = Fixator("FX1", P, M, voltage=10, current=2).stamp(50)
+    assert set(s.entries) == {
+        StampEntry(Branch("FX1"), V("p"), 1),
+        StampEntry(Branch("FX1"), V("m"), -1),
+    }
+    assert set(s.rhs) == {
+        StampRHSEntry(Branch("FX1"), 10),
+        StampRHSEntry(KCL("p"), -2),
+        StampRHSEntry(KCL("m"), 2),
+    }
+
+
+# A norator carries an unknown current and imposes nothing, so it only puts
+# its own current column into the KCL rows of its two nodes.
+def test_norator_stamp() -> None:
+    s = Norator("NR1", P, M).stamp(50)
+    assert set(s.entries) == {
+        StampEntry(KCL("p"), I("NR1"), 1),
+        StampEntry(KCL("m"), I("NR1"), -1),
+    }
+    assert s.rhs == []
+
+
+# The layout reads these groups to give a fixator a row only and a norator a
+# column only, so they must always be in FX and NR and never move.
+def test_fixator_and_norator_are_fixed_to_their_groups() -> None:
+    fx = Fixator("FX1", P, M, voltage=1, current=0)
+    nr = Norator("NR1", P, M)
+    assert fx.group is ElementGroup.FX
+    assert nr.group is ElementGroup.NR
+    with pytest.raises(ValueError):
+        Fixator("FX1", P, M, voltage=1, current=0, group=ElementGroup.G2)
+    with pytest.raises(ValueError):
+        Norator("NR1", P, M, group=ElementGroup.G1)
+    with pytest.raises(ValueError):
+        fx.regroup(ElementGroup.G2)
+    with pytest.raises(ValueError):
+        nr.regroup(ElementGroup.G2)
+
+
+# Any other element in FX or NR would get a row without a column (or the
+# reverse) that its own stamp doesn't match. That must be refused both when it
+# is created and when it is regrouped.
+@pytest.mark.parametrize("group", [ElementGroup.FX, ElementGroup.NR])
+def test_fx_and_nr_are_reserved_for_fixators_and_norators(group: ElementGroup) -> None:
+    with pytest.raises(ValueError):
+        Resistor("R1", P, M, 1.0, group=group)
+    with pytest.raises(ValueError):
+        Resistor("R1", P, M, 1.0).regroup(group)
+
+
+# Like every other element, a fixator's voltage and current must be finite.
+@pytest.mark.parametrize("voltage, current", [(math.nan, 0), (1, math.inf)])
+def test_fixator_values_must_be_finite(voltage: float, current: float) -> None:
+    with pytest.raises(ValueError):
+        Fixator("FX1", P, M, voltage=voltage, current=current)
