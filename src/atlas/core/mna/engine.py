@@ -10,7 +10,7 @@ from atlas.core.model.circuit import Circuit, Wire
 from atlas.core.model.elements import CCVS, Element, ElementGroup, Fixator
 from atlas.core.model.magnetic_coupling import MagneticCoupling
 from atlas.core.model.node import GROUND_NODE
-from atlas.core.utils import is_number_valid
+from atlas.core.utils import is_number_positive
 
 
 @dataclass(frozen=True)
@@ -44,8 +44,8 @@ class Solution:
 
 
 def validate_frequency(f: float) -> None:
-    if not is_number_valid(f) or f <= 0:
-        raise ValueError(f"Frequency must be positive, got {f} Hz.")
+    if not is_number_positive(f):
+        raise ValueError(f"Frequency must be a positive finite number (Hz), got {f!r}.")
 
 
 def required_g2(elements: Mapping[str, Element], couplings: Iterable[MagneticCoupling]) -> set[str]:

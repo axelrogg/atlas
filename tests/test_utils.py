@@ -19,6 +19,13 @@ def test_nan_and_inf_are_invalid(number: complex) -> None:
     assert not is_number_valid(number)
 
 
+# Type hints aren't enforced at runtime, so a bool (an int, True == 1) or a
+# non-number must be refused here rather than pass as a value.
+@pytest.mark.parametrize("value", [True, False, "1", None, [1]])
+def test_bools_and_non_numbers_are_invalid(value: object) -> None:
+    assert not is_number_valid(value)  # pyright: ignore[reportArgumentType]
+
+
 # omega converts Hz to rad/s for every frequency-dependent impedance (jωL, jωC,
 # jωM); a wrong factor here would scale every reactive result.
 def test_omega_is_angular_frequency() -> None:

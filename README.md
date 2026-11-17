@@ -3,13 +3,14 @@
 A steady-state (phasor) circuit simulator based on Modified Nodal Analysis, built
 as the core for simulating shielded underground power cables.
 
-You describe a circuit by placing elements and connecting their terminals, pick a
-frequency, and get every node voltage and every element current back as complex
-phasors.
+You pick a frequency, describe a circuit by placing elements and connecting
+their terminals, and get every node voltage and every element current back as
+complex phasors.
 
-> **Status:** early. The solver works for the elements listed below, but cable
-> models, ports and most validation are still to come (see
-> [Limitations](#limitations)).
+> **Status:** early. The solver works for the elements listed below, and
+> `atlas.lines` has the physics of cables (materials, resistances, Carson's
+> earth-return impedance). Turning a cable line into a circuit, and most
+> validation, are still to come (see [Limitations](#limitations)).
 
 ## Install
 
@@ -26,7 +27,7 @@ A 10 V source driving two resistors in series:
 ```python
 from atlas import ElementKind, Simulator
 
-sim = Simulator()
+sim = Simulator(f=50)
 
 v1 = sim.add_element(ElementKind.VOLTAGE_SOURCE, 10)
 r1 = sim.add_element(ElementKind.RESISTOR, 2.0, plus=v1.plus)
@@ -35,7 +36,7 @@ r2 = sim.add_element(ElementKind.RESISTOR, 3.0, minus=sim.ground)
 sim.connect(r1.minus, r2.plus)
 sim.connect(v1.minus, sim.ground)
 
-sol = sim.solve(f=50)
+sol = sim.solve()
 
 sol.voltages[r2.plus.id]       # 6 V
 sol.element_currents[r1.id]    # 2 A
@@ -123,7 +124,8 @@ are removed. An element that controls a CCVS can't be deleted until the CCVS is.
 
 ### Results
 
-`sim.solve(f)` solves at frequency `f` (Hz, must be positive) and returns a
+`Simulator(f)` fixes the frequency `f` (Hz, must be positive) for everything
+built in it, and `sim.solve()` solves at that frequency and returns a
 `Solution`:
 
 - `sol.voltages[node_id]`: the voltage of every point, relative to ground.
@@ -133,14 +135,18 @@ are removed. An element that controls a CCVS can't be deleted until the CCVS is.
   `connect`. A positive current flows from the wire's first point to its second
   (`connect(a, b)` means from `a` to `b`).
 
-Solving at another frequency is just another `solve` call.
+To solve at another frequency, build the circuit in another `Simulator`. The
+frequency is fixed when the simulator is created because element values worked
+out from physical data, such as a cable's per-metre impedance, depend on it.
 
 ## Limitations
 
 - **Errors in a circuit** (a floating point, a shorted voltage source, a loop of
   voltage sources) are reported as "System matrix is singular" without saying
   which part is at fault.
-- **Ports** and **cable templates** are not implemented yet.
+- **Cable lines** can't be placed in a circuit yet. `atlas.lines` computes their
+  physics, but the layer that turns a line into circuit elements is being
+  redesigned.
 - **Steady state only.** There is no transient (time-domain) analysis, and no DC
   analysis (`f` must be greater than 0).
 
@@ -154,6 +160,13 @@ src/atlas/
     mna/           matrix layout, stamps and the solver engine
     structs/       disjoint set and graph
     utils.py
+  lines/           cable physics
+    materials.py   materials and DC resistance at temperature
+    cable_parts.py conductor, insulation, screen and jacket
+    cable.py       the Cable base class
+    iec60287.py    IEC 60287 skin and proximity effect
+    carson.py      Carson–Clem series impedance with earth return
+    geometry.py    positions, trefoil and flat formations, overlap check
 ```
 
 ## Development

@@ -1,6 +1,6 @@
 from collections.abc import Container
 
-from atlas.core.mna.engine import Engine, Solution
+from atlas.core.mna.engine import Engine, Solution, validate_frequency
 from atlas.core.model.circuit import Circuit, Wire
 from atlas.core.model.elements import (
     CCVS,
@@ -44,9 +44,15 @@ def to_real_value(value: complex, kind: ElementKind) -> float:
 
 class Simulator:
 
-    def __init__(self) -> None:
+    def __init__(self, f: float) -> None:
+        validate_frequency(f)
+        self._f: float = f
         self.circuit: Circuit = Circuit()
         self._id_counts: dict[str, int] = {}
+
+    @property
+    def f(self) -> float:
+        return self._f
 
     @property
     def ground(self) -> Node:
@@ -181,5 +187,6 @@ class Simulator:
         self.circuit.add_coupling(k)
         return k
 
-    def solve(self, f: float) -> Solution:
-        return Engine(self.circuit, f).solve()
+    def solve(self) -> Solution:
+        return Engine(self.circuit, self.f).solve()
+
